@@ -716,31 +716,47 @@ ReturnType readJSONStringInto(Vector & s, ReadBuffer & buf)
         return ReturnType(false);
     };
 
-    if (buf.eof() || *buf.position() != '"')
-        return error("Cannot parse JSON string: expected opening quote", ErrorCodes::CANNOT_PARSE_QUOTED_STRING);
-    ++buf.position();
-
-    while (!buf.eof())
-    {
-        char * next_pos = find_first_symbols<'\\', '"'>(buf.position(), buf.buffer().end());
-
-        appendToStringOrVector(s, buf, next_pos);
-        buf.position() = next_pos;
-
-        if (!buf.hasPendingData())
-            continue;
-
-        if (*buf.position() == '"')
+    if (!buf.eof() && *buf.position() == '"'){
+        ++buf.position();
+        while (!buf.eof())
         {
-            ++buf.position();
-            return ReturnType(true);
-        }
+            char * next_pos = find_first_symbols<'\\', '"'>(buf.position(), buf.buffer().end());
 
-        if (*buf.position() == '\\')
-            parseJSONEscapeSequence<Vector, ReturnType>(s, buf);
+            appendToStringOrVector(s, buf, next_pos);
+            buf.position() = next_pos;
+
+            if (!buf.hasPendingData())
+                continue;
+
+            if (*buf.position() == '"')
+            {
+                ++buf.position();
+                return ReturnType(true);
+            }
+            if (*buf.position() == '\\')
+                parseJSONEscapeSequence<Vector, ReturnType>(s, buf);
+        }
+        return error("Cannot parse JSON string: expected closing quote", ErrorCodes::CANNOT_PARSE_QUOTED_STRING);
+    }else if(!buf.eof() && *buf.position() != '"'){
+            while (!buf.eof())
+            {
+                char * next_pos = find_first_symbols<',', '}'>(buf.position(), buf.buffer().end());
+                appendToStringOrVector(s, buf, next_pos);
+                buf.position() = next_pos;
+
+                if (!buf.hasPendingData())
+                    continue;
+
+                if (*buf.position() == ',' || *buf.position() == '}')
+                {
+                    return ReturnType(true);
+                }
+            }
     }
 
-    return error("Cannot parse JSON string: expected closing quote", ErrorCodes::CANNOT_PARSE_QUOTED_STRING);
+    return error("Cannot parse JSON string: incorrect data", ErrorCodes::INCORRECT_DATA);
+
+
 }
 
 void readJSONString(String & s, ReadBuffer & buf)

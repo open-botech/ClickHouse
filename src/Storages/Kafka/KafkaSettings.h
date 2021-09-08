@@ -31,8 +31,12 @@ class ASTStorage;
     M(UInt64, kafka_skip_broken_messages, 0, "Skip at least this number of broken messages from Kafka topic per block", 0) \
     M(Bool, kafka_thread_per_consumer, false, "Provide independent thread for each consumer", 0) \
     M(HandleKafkaErrorMode, kafka_handle_error_mode, HandleKafkaErrorMode::DEFAULT, "How to handle errors for Kafka engine. Passible values: default, stream.", 0) \
+    M(String, kafka_security_protocol, "", "Security protocol for Kafka engine", 0) \
+    M(String, kafka_sasl_mechanism, "", "Sasl mechanism for Kafka engine", 0) \
+    M(String, kafka_sasl_kerberos_service_name, "", "Sasl kerberos service name for Kafka engine", 0) \
+    M(String, kafka_sasl_kerberos_principal, "", "Sasl kerberos principal for Kafka engine", 0) \
 
-    /** TODO: */
+/** TODO: */
     /* https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md */
     /* https://github.com/edenhill/librdkafka/blob/v1.4.2/src/rdkafka_conf.c */
 

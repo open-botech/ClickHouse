@@ -110,8 +110,12 @@ void SerializationDateTime::deserializeTextJSON(IColumn & column, ReadBuffer & i
     time_t x = 0;
     if (checkChar('"', istr))
     {
-        readText(x, istr, settings, time_zone, utc_time_zone);
-        assertChar('"', istr);
+        if(*istr.position() == '"'){
+            ++istr.position();
+        }else{
+            readText(x, istr, settings, time_zone, utc_time_zone);
+            assertChar('"', istr);
+        }
     }
     else
     {

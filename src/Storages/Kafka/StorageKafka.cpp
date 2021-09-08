@@ -189,6 +189,10 @@ StorageKafka::StorageKafka(
     , intermediate_commit(kafka_settings->kafka_commit_every_batch.value)
     , settings_adjustments(createSettingsAdjustments())
     , thread_per_consumer(kafka_settings->kafka_thread_per_consumer.value)
+    , security_protocol(kafka_settings->kafka_security_protocol.value)
+    , sasl_mechanism(kafka_settings->kafka_sasl_mechanism.value)
+    , sasl_kerberos_service_name(kafka_settings->kafka_sasl_kerberos_service_name.value)
+    , sasl_kerberos_principal(kafka_settings->kafka_sasl_kerberos_principal)
 {
     if (kafka_settings->kafka_handle_error_mode == HandleKafkaErrorMode::STREAM)
     {
@@ -383,6 +387,7 @@ ProducerBufferPtr StorageKafka::createWriteBuffer(const Block & header)
     conf.set("client.id", client_id);
     conf.set("client.software.name", VERSION_NAME);
     conf.set("client.software.version", VERSION_DESCRIBE);
+
     // TODO: fill required settings
     updateConfiguration(conf);
 
@@ -419,6 +424,13 @@ ConsumerBufferPtr StorageKafka::createReadBuffer(const size_t consumer_number)
     size_t default_queued_min_messages = 100000; // we don't want to decrease the default
     conf.set("queued.min.messages", std::max(getMaxBlockSize(),default_queued_min_messages));
 
+    //sasl settings
+    if(!security_protocol.empty() ){
+        conf.set("security.protocol", security_protocol);
+        conf.set("sasl.mechanism", sasl_mechanism);
+        conf.set("sasl.kerberos.service.name", sasl_kerberos_service_name);
+        conf.set("sasl.kerberos.principal", sasl_kerberos_principal);
+    }
     updateConfiguration(conf);
 
     // those settings should not be changed by users.
