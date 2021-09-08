@@ -108,6 +108,10 @@ private:
     };
     std::vector<std::shared_ptr<TaskContext>> tasks;
     bool thread_per_consumer = false;
+    const String security_protocol;
+    const String sasl_mechanism;
+    const String sasl_kerberos_service_name;
+    const String sasl_kerberos_principal;
 
     /// For memory accounting in the librdkafka threads.
     std::mutex thread_statuses_mutex;
