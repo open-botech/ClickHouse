@@ -15,6 +15,7 @@ void registerFileSegmentationEngineCSV(FormatFactory & factory);
 void registerFileSegmentationEngineJSONEachRow(FormatFactory & factory);
 void registerFileSegmentationEngineRegexp(FormatFactory & factory);
 void registerFileSegmentationEngineJSONAsString(FormatFactory & factory);
+void registerFileSegmentationEngineJSONAsStringEachRow(FormatFactory & factory);
 
 /// Formats for both input/output.
 
@@ -76,6 +77,7 @@ void registerOutputFormatProcessorPostgreSQLWire(FormatFactory & factory);
 
 void registerInputFormatProcessorRegexp(FormatFactory & factory);
 void registerInputFormatProcessorJSONAsString(FormatFactory & factory);
+void registerInputFormatProcessorJSONAsStringEachRow(FormatFactory & factory);
 void registerInputFormatProcessorLineAsString(FormatFactory & factory);
 void registerInputFormatProcessorCapnProto(FormatFactory & factory);
 
@@ -89,6 +91,7 @@ void registerFormats()
     registerFileSegmentationEngineJSONEachRow(factory);
     registerFileSegmentationEngineRegexp(factory);
     registerFileSegmentationEngineJSONAsString(factory);
+    registerFileSegmentationEngineJSONAsStringEachRow(factory);
 
     registerInputFormatNative(factory);
     registerOutputFormatNative(factory);
@@ -148,6 +151,7 @@ void registerFormats()
 
     registerInputFormatProcessorRegexp(factory);
     registerInputFormatProcessorJSONAsString(factory);
+    registerInputFormatProcessorJSONAsStringEachRow(factory);
     registerInputFormatProcessorLineAsString(factory);
 
 #if !defined(ARCADIA_BUILD)
