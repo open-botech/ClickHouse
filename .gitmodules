@@ -11,7 +11,8 @@
 [submodule "contrib/librdkafka"]
 	path = contrib/librdkafka
 	url = https://github.com/open-botech/librdkafka.git
-[submodule "contrib/cctz"]
+	branch = hb-librdkafka
+[submodule "contrib/cctz"]	
 	path = contrib/cctz
 	url = https://github.com/ClickHouse-Extras/cctz.git
 [submodule "contrib/zlib-ng"]
@@ -249,6 +250,3 @@
 [submodule "contrib/magic_enum"]
 	path = contrib/magic_enum
 	url = https://github.com/Neargye/magic_enum
-[submodule "contrib/sysroot"]
-	path = contrib/sysroot
-	url = https://github.com/ClickHouse-Extras/sysroot.git
