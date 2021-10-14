@@ -111,7 +111,9 @@ private:
     const String security_protocol;
     const String sasl_mechanism;
     const String sasl_kerberos_service_name;
+    const String sasl_kerberos_domain;
     const String sasl_kerberos_principal;
+    const String sasl_kerberos_keytab;
 
     /// For memory accounting in the librdkafka threads.
     std::mutex thread_statuses_mutex;
