@@ -192,7 +192,9 @@ StorageKafka::StorageKafka(
     , security_protocol(kafka_settings->kafka_security_protocol.value)
     , sasl_mechanism(kafka_settings->kafka_sasl_mechanism.value)
     , sasl_kerberos_service_name(kafka_settings->kafka_sasl_kerberos_service_name.value)
+    , sasl_kerberos_domain(kafka_settings->kafka_sasl_kerberos_domain.value)
     , sasl_kerberos_principal(kafka_settings->kafka_sasl_kerberos_principal)
+    , sasl_kerberos_keytab(kafka_settings->kafka_sasl_kerberos_keytab)
 {
     if (kafka_settings->kafka_handle_error_mode == HandleKafkaErrorMode::STREAM)
     {
@@ -429,7 +431,10 @@ ConsumerBufferPtr StorageKafka::createReadBuffer(const size_t consumer_number)
         conf.set("security.protocol", security_protocol);
         conf.set("sasl.mechanism", sasl_mechanism);
         conf.set("sasl.kerberos.service.name", sasl_kerberos_service_name);
+        conf.set("sasl.kerberos.domain", sasl_kerberos_domain);
         conf.set("sasl.kerberos.principal", sasl_kerberos_principal);
+        conf.set("sasl.kerberos.keytab", sasl_kerberos_keytab);
+        
     }
     updateConfiguration(conf);
 

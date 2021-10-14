@@ -34,7 +34,9 @@ class ASTStorage;
     M(String, kafka_security_protocol, "", "Security protocol for Kafka engine", 0) \
     M(String, kafka_sasl_mechanism, "", "Sasl mechanism for Kafka engine", 0) \
     M(String, kafka_sasl_kerberos_service_name, "", "Sasl kerberos service name for Kafka engine", 0) \
+    M(String, kafka_sasl_kerberos_domain, "", "Sasl kerberos domain for Kafka engine", 0) \
     M(String, kafka_sasl_kerberos_principal, "", "Sasl kerberos principal for Kafka engine", 0) \
+    M(String, kafka_sasl_kerberos_keytab, "", "Sasl kerberos keytab for Kafka engine", 0) \
 
 /** TODO: */
     /* https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md */

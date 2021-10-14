@@ -35,12 +35,10 @@ void JSONAsStringEachRowInputFormat::syncAfterError()
 void JSONAsStringEachRowInputFormat::resetParser()
 {
     IRowInputFormat::resetParser();
-    // in.reset();
 }
 
 void JSONAsStringEachRowInputFormat::readJSONObject(IColumn & column)
 {
-    //PeekableReadBufferCheckpoint checkpoint{buf};
     size_t balance = 0;
     bool quotes = false;
     char * start = in.position();
@@ -108,9 +106,6 @@ void JSONAsStringEachRowInputFormat::readJSONObject(IColumn & column)
             }
         }
     }
-    //in.makeContinuousMemoryFromCheckpointToPos();
-    //char * end = in.position();
-    //in.rollbackToCheckpoint();
     column.insertData(start, in.position() - start);
 
 }
