@@ -2,7 +2,7 @@
 #include <Formats/JSONEachRowUtils.h>
 #include <DataTypes/DataTypeNullable.h>
 #include <DataTypes/DataTypeLowCardinality.h>
-#include <common/find_symbols.h>
+#include <base/find_symbols.h>
 #include <IO/ReadHelpers.h>
 
 namespace DB
@@ -29,7 +29,7 @@ JSONAsStringEachRowInputFormat::JSONAsStringEachRowInputFormat(const Block & hea
 }
 void JSONAsStringEachRowInputFormat::syncAfterError()
 {
-    skipToUnescapedNextLineOrEOF(in);
+    skipToUnescapedNextLineOrEOF(*in);
 }
 
 void JSONAsStringEachRowInputFormat::resetParser()
@@ -41,88 +41,88 @@ void JSONAsStringEachRowInputFormat::readJSONObject(IColumn & column)
 {
     size_t balance = 0;
     bool quotes = false;
-    char * start = in.position();
-    if (*in.position() != '{')
+    char * start = in->position();
+    if (*in->position() != '{')
         throw Exception("JSON object must begin with '{'.", ErrorCodes::INCORRECT_DATA);
 
-    ++in.position();
+    ++in->position();
     ++balance;
 
     char * pos;
 
     while (balance)
     {
-        if (in.eof())
+        if (in->eof())
             throw Exception("Unexpected end of file while parsing JSON object.", ErrorCodes::INCORRECT_DATA);
 
         if (quotes)
         {
-            pos = find_first_symbols<'"', '\\'>(in.position(), in.buffer().end());
-            in.position() = pos;
-            if (in.position() == in.buffer().end())
+            pos = find_first_symbols<'"', '\\'>(in->position(), in->buffer().end());
+            in->position() = pos;
+            if (in->position() == in->buffer().end())
                 continue;
-            if (*in.position() == '"')
+            if (*in->position() == '"')
             {
                 quotes = false;
-                ++in.position();
+                ++in->position();
             }
-            else if (*in.position() == '\\')
+            else if (*in->position() == '\\')
             {
-                ++in.position();
-                if (!in.eof())
+                ++in->position();
+                if (!in->eof())
                 {
-                    ++in.position();
+                    ++in->position();
                 }
             }
         }
         else
         {
-            pos = find_first_symbols<'"', '{', '}', '\\'>(in.position(), in.buffer().end());
-            in.position() = pos;
-            if (in.position() == in.buffer().end())
+            pos = find_first_symbols<'"', '{', '}', '\\'>(in->position(), in->buffer().end());
+            in->position() = pos;
+            if (in->position() == in->buffer().end())
                 continue;
-            if (*in.position() == '{')
+            if (*in->position() == '{')
             {
                 ++balance;
-                ++in.position();
+                ++in->position();
             }
-            else if (*in.position() == '}')
+            else if (*in->position() == '}')
             {
                 --balance;
-                ++in.position();
+                ++in->position();
             }
-            else if (*in.position() == '\\')
+            else if (*in->position() == '\\')
             {
-                ++in.position();
-                if (!in.eof())
+                ++in->position();
+                if (!in->eof())
                 {
-                    ++in.position();
+                    ++in->position();
                 }
             }
-            else if (*in.position() == '"')
+            else if (*in->position() == '"')
             {
                 quotes = true;
-                ++in.position();
+                ++in->position();
             }
         }
     }
-    column.insertData(start, in.position() - start);
+    column.insertData(start, in->position() - start);
 
 }
 
 bool JSONAsStringEachRowInputFormat::readRow(MutableColumns & columns, RowReadExtension &)
 {
-    skipWhitespaceIfAny(in);
+    skipWhitespaceIfAny(*in);
 
-    if (!in.eof())
+    if (!in->eof())
         readJSONObject(*columns[0]);
 
-    skipWhitespaceIfAny(in);
-    if (!in.eof() && *in.position() == ',')
-        ++in.position();
-    skipWhitespaceIfAny(in);
+    skipWhitespaceIfAny(*in);
+    if (!in->eof() && *in->position() == ',')
+        ++in->position();
+    skipWhitespaceIfAny(*in);
 
-    return !in.eof();
+    return !in->eof();
 }
 
 void registerInputFormatProcessorJSONAsStringEachRow(FormatFactory & factory)
