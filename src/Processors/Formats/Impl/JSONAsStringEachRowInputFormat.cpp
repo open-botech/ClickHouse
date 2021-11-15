@@ -127,7 +127,7 @@ bool JSONAsStringEachRowInputFormat::readRow(MutableColumns & columns, RowReadEx
 
 void registerInputFormatProcessorJSONAsStringEachRow(FormatFactory & factory)
 {
-    factory.registerInputFormatProcessor("JSONAsStringEachRow", [](
+    factory.registerInputFormat("JSONAsStringEachRow", [](
                                                                     ReadBuffer & buf,
                                                                     const Block & sample,
                                                                     const RowInputFormatParams & params,
