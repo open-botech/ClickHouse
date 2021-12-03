@@ -8,7 +8,6 @@ namespace DB
 {
 
 void registerStorageLog(StorageFactory & factory);
-void registerStorageTinyLog(StorageFactory & factory);
 void registerStorageStripeLog(StorageFactory & factory);
 void registerStorageMergeTree(StorageFactory & factory);
 void registerStorageNull(StorageFactory & factory);
@@ -26,6 +25,7 @@ void registerStorageMaterializedView(StorageFactory & factory);
 void registerStorageLiveView(StorageFactory & factory);
 void registerStorageGenerateRandom(StorageFactory & factory);
 void registerStorageExecutable(StorageFactory & factory);
+void registerStorageWindowView(StorageFactory & factory);
 
 #if USE_AWS_S3
 void registerStorageS3(StorageFactory & factory);
@@ -80,7 +80,6 @@ void registerStorages()
     auto & factory = StorageFactory::instance();
 
     registerStorageLog(factory);
-    registerStorageTinyLog(factory);
     registerStorageStripeLog(factory);
     registerStorageMergeTree(factory);
     registerStorageNull(factory);
@@ -98,6 +97,7 @@ void registerStorages()
     registerStorageLiveView(factory);
     registerStorageGenerateRandom(factory);
     registerStorageExecutable(factory);
+    registerStorageWindowView(factory);
 
     #if USE_AWS_S3
     registerStorageS3(factory);
