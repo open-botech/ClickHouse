@@ -10,6 +10,7 @@
 
 #include <Formats/NativeReader.h>
 #include <DataTypes/DataTypeLowCardinality.h>
+#include <DataTypes/DataTypeAggregateFunction.h>
 
 
 namespace DB
@@ -62,7 +63,7 @@ void NativeReader::resetParser()
     use_index = false;
 }
 
-void NativeReader::readData(const IDataType & type, ColumnPtr & column, ReadBuffer & istr, size_t rows, double avg_value_size_hint)
+void NativeReader::readData(const IDataType & type, ColumnPtr & column, ReadBuffer & istr, size_t rows, double avg_value_size_hint, size_t revision)
 {
     ISerialization::DeserializeBinaryBulkSettings settings;
     settings.getter = [&](ISerialization::SubstreamPath) -> ReadBuffer * { return &istr; };
@@ -71,6 +72,14 @@ void NativeReader::readData(const IDataType & type, ColumnPtr & column, ReadBuff
     settings.native_format = true;
 
     ISerialization::DeserializeBinaryBulkStatePtr state;
+
+    const auto * aggregate_function_data_type = typeid_cast<const DataTypeAggregateFunction *>(&type);
+    if (aggregate_function_data_type && aggregate_function_data_type->isVersioned())
+    {
+        auto version = aggregate_function_data_type->getVersionFromRevision(revision);
+        aggregate_function_data_type->setVersion(version, /* if_empty */true);
+    }
+
     auto serialization = type.getDefaultSerialization();
 
     serialization->deserializeBinaryBulkStatePrefix(settings, state);
@@ -156,7 +165,7 @@ Block NativeReader::read()
 
         double avg_value_size_hint = avg_value_size_hints.empty() ? 0 : avg_value_size_hints[i];
         if (rows)    /// If no rows, nothing to read.
-            readData(*column.type, read_column, istr, rows, avg_value_size_hint);
+            readData(*column.type, read_column, istr, rows, avg_value_size_hint, server_revision);
 
         column.column = std::move(read_column);
 
@@ -218,41 +227,6 @@ void NativeReader::updateAvgValueSizeHints(const Block & block)
     {
         auto & avg_value_size_hint = avg_value_size_hints[idx];
         IDataType::updateAvgValueSizeHint(*block.getByPosition(idx).column, avg_value_size_hint);
-    }
-}
-
-void IndexForNativeFormat::read(ReadBuffer & istr, const NameSet & required_columns)
-{
-    while (!istr.eof())
-    {
-        blocks.emplace_back();
-        IndexOfBlockForNativeFormat & block = blocks.back();
-
-        readVarUInt(block.num_columns, istr);
-        readVarUInt(block.num_rows, istr);
-
-        if (block.num_columns < required_columns.size())
-            throw Exception("Index contain less than required columns", ErrorCodes::INCORRECT_INDEX);
-
-        for (size_t i = 0; i < block.num_columns; ++i)
-        {
-            IndexOfOneColumnForNativeFormat column_index;
-
-            readBinary(column_index.name, istr);
-            readBinary(column_index.type, istr);
-            readBinary(column_index.location.offset_in_compressed_file, istr);
-            readBinary(column_index.location.offset_in_decompressed_block, istr);
-
-            if (required_columns.count(column_index.name))
-                block.columns.push_back(std::move(column_index));
-        }
-
-        if (block.columns.size() < required_columns.size())
-            throw Exception("Index contain less than required columns", ErrorCodes::INCORRECT_INDEX);
-        if (block.columns.size() > required_columns.size())
-            throw Exception("Index contain duplicate columns", ErrorCodes::INCORRECT_INDEX);
-
-        block.num_columns = block.columns.size();
     }
 }
 

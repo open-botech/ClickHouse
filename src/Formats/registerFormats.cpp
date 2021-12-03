@@ -14,6 +14,7 @@ void registerFileSegmentationEngineJSONEachRow(FormatFactory & factory);
 void registerFileSegmentationEngineRegexp(FormatFactory & factory);
 void registerFileSegmentationEngineJSONAsString(FormatFactory & factory);
 void registerFileSegmentationEngineJSONAsStringEachRow(FormatFactory & factory);
+void registerFileSegmentationEngineJSONCompactEachRow(FormatFactory & factory);
 
 /// Formats for both input/output.
 
@@ -50,6 +51,8 @@ void registerInputFormatAvro(FormatFactory & factory);
 void registerOutputFormatAvro(FormatFactory & factory);
 void registerInputFormatRawBLOB(FormatFactory & factory);
 void registerOutputFormatRawBLOB(FormatFactory & factory);
+void registerInputFormatCustomSeparated(FormatFactory & factory);
+void registerOutputFormatCustomSeparated(FormatFactory & factory);
 
 /// Output only (presentational) formats.
 
@@ -91,6 +94,7 @@ void registerFormats()
     registerFileSegmentationEngineRegexp(factory);
     registerFileSegmentationEngineJSONAsString(factory);
     registerFileSegmentationEngineJSONAsStringEachRow(factory);
+    registerFileSegmentationEngineJSONCompactEachRow(factory);
 
     registerInputFormatNative(factory);
     registerOutputFormatNative(factory);
@@ -117,6 +121,8 @@ void registerFormats()
     registerOutputFormatMsgPack(factory);
     registerInputFormatRawBLOB(factory);
     registerOutputFormatRawBLOB(factory);
+    registerInputFormatCustomSeparated(factory);
+    registerOutputFormatCustomSeparated(factory);
 
     registerInputFormatORC(factory);
     registerOutputFormatORC(factory);

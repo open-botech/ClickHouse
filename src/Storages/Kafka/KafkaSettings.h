@@ -38,7 +38,9 @@ class ASTStorage;
     M(String, kafka_sasl_kerberos_principal, "", "Sasl kerberos principal for Kafka engine", 0) \
     M(String, kafka_sasl_kerberos_keytab, "", "Sasl kerberos keytab for Kafka engine", 0) \
 
-/** TODO: */
+    M(Bool, kafka_commit_on_select, false, "Commit messages when select query is made", 0) \
+
+    /** TODO: */
     /* https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md */
     /* https://github.com/edenhill/librdkafka/blob/v1.4.2/src/rdkafka_conf.c */
 
