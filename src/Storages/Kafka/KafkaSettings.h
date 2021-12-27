@@ -37,7 +37,6 @@ class ASTStorage;
     M(String, kafka_sasl_kerberos_domain, "", "Sasl kerberos domain for Kafka engine", 0) \
     M(String, kafka_sasl_kerberos_principal, "", "Sasl kerberos principal for Kafka engine", 0) \
     M(String, kafka_sasl_kerberos_keytab, "", "Sasl kerberos keytab for Kafka engine", 0) \
-
     M(Bool, kafka_commit_on_select, false, "Commit messages when select query is made", 0) \
 
     /** TODO: */
