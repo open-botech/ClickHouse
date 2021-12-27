@@ -139,7 +139,7 @@ void registerInputFormatJSONAsStringEachRow(FormatFactory & factory)
 
 void registerFileSegmentationEngineJSONAsStringEachRow(FormatFactory & factory)
 {
-    factory.registerFileSegmentationEngine("JSONAsStringEachRow", &fileSegmentationEngineJSONEachRowImpl);
+    factory.registerFileSegmentationEngine("JSONAsStringEachRow", &fileSegmentationEngineJSONEachRow);
 }
 
 }
