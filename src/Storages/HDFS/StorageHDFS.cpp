@@ -10,9 +10,9 @@
 #include <Parsers/ASTInsertQuery.h>
 #include <Processors/Sinks/SinkToStorage.h>
 #include <Processors/Formats/IOutputFormat.h>
-#include <Processors/Sources/SourceWithProgress.h>
 #include <Processors/Executors/PullingPipelineExecutor.h>
 #include <Processors/Formats/IInputFormat.h>
+#include <Processors/Transforms/AddingDefaultsTransform.h>
 
 #include <IO/WriteHelpers.h>
 #include <IO/ReadHelpers.h>
@@ -53,6 +53,9 @@ namespace ErrorCodes
     extern const int ACCESS_DENIED;
 }
 
+static Strings listFilesWithRegexpMatching(const String & path_for_ls, const HDFSFSPtr & fs, const String & for_match);
+
+
 StorageHDFS::StorageHDFS(
     const String & uri_,
     const StorageID & table_id_,
@@ -61,9 +64,15 @@ StorageHDFS::StorageHDFS(
     const ConstraintsDescription & constraints_,
     const String & comment,
     ContextPtr context_,
-    const String & compression_method_ = "",
+    const String & compression_method_,
+    const bool distributed_processing_,
     ASTPtr partition_by_)
-    : IStorage(table_id_), WithContext(context_), uri(uri_), format_name(format_name_), compression_method(compression_method_)
+    : IStorage(table_id_)
+    , WithContext(context_)
+    , uri(uri_)
+    , format_name(format_name_)
+    , compression_method(compression_method_)
+    , distributed_processing(distributed_processing_)
     , partition_by(partition_by_)
 {
     context_->getRemoteHostFilter().checkURL(Poco::URI(uri));
@@ -76,122 +85,182 @@ StorageHDFS::StorageHDFS(
     setInMemoryMetadata(storage_metadata);
 }
 
-namespace
-{
-
-class HDFSSource : public SourceWithProgress, WithContext
+class HDFSSource::DisclosedGlobIterator::Impl
 {
 public:
-    struct SourcesInfo
+    Impl(ContextPtr context_, const String & uri)
     {
-        std::vector<String> uris;
-        std::atomic<size_t> next_uri_to_read = 0;
+        const size_t begin_of_path = uri.find('/', uri.find("//") + 2);
+        const String path_from_uri = uri.substr(begin_of_path);
+        const String uri_without_path = uri.substr(0, begin_of_path); /// ends without '/'
 
-        bool need_path_column = false;
-        bool need_file_column = false;
+        HDFSBuilderWrapper builder = createHDFSBuilder(uri_without_path + "/", context_->getGlobalContext()->getConfigRef());
+        HDFSFSPtr fs = createHDFSFS(builder.get());
+
+        uris = listFilesWithRegexpMatching("/", fs, path_from_uri);
+        for (auto & elem : uris)
+            elem = uri_without_path + elem;
+        uris_iter = uris.begin();
+    }
+
+    String next()
+    {
+        std::lock_guard lock(mutex);
+        if (uris_iter != uris.end())
+        {
+            auto answer = *uris_iter;
+            ++uris_iter;
+            return answer;
+        }
+        return {};
+    }
+private:
+    std::mutex mutex;
+    Strings uris;
+    Strings::iterator uris_iter;
+};
+
+Block HDFSSource::getHeader(const StorageMetadataPtr & metadata_snapshot, bool need_path_column, bool need_file_column)
+{
+    auto header = metadata_snapshot->getSampleBlock();
+    /// Note: AddingDefaultsBlockInputStream doesn't change header.
+    if (need_path_column)
+        header.insert({DataTypeString().createColumn(), std::make_shared<DataTypeString>(), "_path"});
+    if (need_file_column)
+        header.insert({DataTypeString().createColumn(), std::make_shared<DataTypeString>(), "_file"});
+    return header;
+}
+
+Block HDFSSource::getBlockForSource(
+    const StorageHDFSPtr & storage,
+    const StorageMetadataPtr & metadata_snapshot,
+    const ColumnsDescription & columns_description,
+    bool need_path_column,
+    bool need_file_column)
+{
+    if (storage->isColumnOriented())
+        return metadata_snapshot->getSampleBlockForColumns(
+            columns_description.getNamesOfPhysical(), storage->getVirtuals(), storage->getStorageID());
+    else
+        return getHeader(metadata_snapshot, need_path_column, need_file_column);
+}
+
+HDFSSource::DisclosedGlobIterator::DisclosedGlobIterator(ContextPtr context_, const String & uri)
+    : pimpl(std::make_shared<HDFSSource::DisclosedGlobIterator::Impl>(context_, uri)) {}
+
+String HDFSSource::DisclosedGlobIterator::next()
+{
+    return pimpl->next();
+}
+
+
+HDFSSource::HDFSSource(
+    StorageHDFSPtr storage_,
+    const StorageMetadataPtr & metadata_snapshot_,
+    ContextPtr context_,
+    UInt64 max_block_size_,
+    bool need_path_column_,
+    bool need_file_column_,
+    std::shared_ptr<IteratorWrapper> file_iterator_,
+    ColumnsDescription columns_description_)
+    : SourceWithProgress(getBlockForSource(storage_, metadata_snapshot_, columns_description_, need_path_column_, need_file_column_))
+    , WithContext(context_)
+    , storage(std::move(storage_))
+    , metadata_snapshot(metadata_snapshot_)
+    , max_block_size(max_block_size_)
+    , need_path_column(need_path_column_)
+    , need_file_column(need_file_column_)
+    , file_iterator(file_iterator_)
+    , columns_description(std::move(columns_description_))
+{
+    initialize();
+}
+
+void HDFSSource::onCancel()
+{
+    if (reader)
+        reader->cancel();
+}
+
+bool HDFSSource::initialize()
+{
+    current_path = (*file_iterator)();
+    if (current_path.empty())
+        return false;
+    const size_t begin_of_path = current_path.find('/', current_path.find("//") + 2);
+    const String path_from_uri = current_path.substr(begin_of_path);
+    const String uri_without_path = current_path.substr(0, begin_of_path);
+
+    auto compression = chooseCompressionMethod(path_from_uri, storage->compression_method);
+    read_buf = wrapReadBufferWithCompressionMethod(std::make_unique<ReadBufferFromHDFS>(uri_without_path, path_from_uri, getContext()->getGlobalContext()->getConfigRef()), compression);
+
+    auto get_block_for_format = [&]() -> Block
+    {
+        if (storage->isColumnOriented())
+            return metadata_snapshot->getSampleBlockForColumns(columns_description.getNamesOfPhysical());
+        return metadata_snapshot->getSampleBlock();
     };
 
-    using SourcesInfoPtr = std::shared_ptr<SourcesInfo>;
+    auto input_format = getContext()->getInputFormat(storage->format_name, *read_buf, get_block_for_format(), max_block_size);
 
-    static Block getHeader(Block header, bool need_path_column, bool need_file_column)
+    QueryPipelineBuilder builder;
+    builder.init(Pipe(input_format));
+    if (columns_description.hasDefaults())
     {
-        if (need_path_column)
-            header.insert({DataTypeString().createColumn(), std::make_shared<DataTypeString>(), "_path"});
-        if (need_file_column)
-            header.insert({DataTypeString().createColumn(), std::make_shared<DataTypeString>(), "_file"});
-
-        return header;
-    }
-
-    HDFSSource(
-        SourcesInfoPtr source_info_,
-        String uri_,
-        String format_,
-        String compression_method_,
-        Block sample_block_,
-        ContextPtr context_,
-        UInt64 max_block_size_)
-        : SourceWithProgress(getHeader(sample_block_, source_info_->need_path_column, source_info_->need_file_column))
-        , WithContext(context_)
-        , source_info(std::move(source_info_))
-        , uri(std::move(uri_))
-        , format(std::move(format_))
-        , compression_method(compression_method_)
-        , max_block_size(max_block_size_)
-        , sample_block(std::move(sample_block_))
-    {
-    }
-
-    String getName() const override
-    {
-        return "HDFS";
-    }
-
-    Chunk generate() override
-    {
-        while (true)
+        builder.addSimpleTransform([&](const Block & header)
         {
-            if (!reader)
-            {
-                auto pos = source_info->next_uri_to_read.fetch_add(1);
-                if (pos >= source_info->uris.size())
-                    return {};
+            return std::make_shared<AddingDefaultsTransform>(header, columns_description, *input_format, getContext());
+        });
+    }
+    pipeline = std::make_unique<QueryPipeline>(QueryPipelineBuilder::getPipeline(std::move(builder)));
+    reader = std::make_unique<PullingPipelineExecutor>(*pipeline);
+    return true;
+}
 
-                auto path =  source_info->uris[pos];
-                current_path = uri + path;
+String HDFSSource::getName() const
+{
+    return "HDFSSource";
+}
 
-                auto compression = chooseCompressionMethod(path, compression_method);
-                read_buf = wrapReadBufferWithCompressionMethod(std::make_unique<ReadBufferFromHDFS>(uri, path, getContext()->getGlobalContext()->getConfigRef()), compression);
-                auto input_format = getContext()->getInputFormat(format, *read_buf, sample_block, max_block_size);
-                pipeline = QueryPipeline(std::move(input_format));
+Chunk HDFSSource::generate()
+{
+    if (!reader)
+        return {};
 
-                reader = std::make_unique<PullingPipelineExecutor>(pipeline);
-            }
+    Chunk chunk;
+    if (reader->pull(chunk))
+    {
+        Columns columns = chunk.getColumns();
+        UInt64 num_rows = chunk.getNumRows();
 
-            Block res;
-            if (reader->pull(res))
-            {
-                Columns columns = res.getColumns();
-                UInt64 num_rows = res.rows();
-
-                /// Enrich with virtual columns.
-                if (source_info->need_path_column)
-                {
-                    auto column = DataTypeString().createColumnConst(num_rows, current_path);
-                    columns.push_back(column->convertToFullColumnIfConst());
-                }
-
-                if (source_info->need_file_column)
-                {
-                    size_t last_slash_pos = current_path.find_last_of('/');
-                    auto file_name = current_path.substr(last_slash_pos + 1);
-
-                    auto column = DataTypeString().createColumnConst(num_rows, std::move(file_name));
-                    columns.push_back(column->convertToFullColumnIfConst());
-                }
-
-                return Chunk(std::move(columns), num_rows);
-            }
-
-            reader.reset();
-            pipeline.reset();
-            read_buf.reset();
+        /// Enrich with virtual columns.
+        if (need_path_column)
+        {
+            auto column = DataTypeString().createColumnConst(num_rows, current_path);
+            columns.push_back(column->convertToFullColumnIfConst());
         }
+
+        if (need_file_column)
+        {
+            size_t last_slash_pos = current_path.find_last_of('/');
+            auto file_name = current_path.substr(last_slash_pos + 1);
+
+            auto column = DataTypeString().createColumnConst(num_rows, std::move(file_name));
+            columns.push_back(column->convertToFullColumnIfConst());
+        }
+
+        return Chunk(std::move(columns), num_rows);
     }
 
-private:
-    std::unique_ptr<ReadBuffer> read_buf;
-    QueryPipeline pipeline;
-    std::unique_ptr<PullingPipelineExecutor> reader;
-    SourcesInfoPtr source_info;
-    String uri;
-    String format;
-    String compression_method;
-    String current_path;
+    reader.reset();
+    pipeline.reset();
+    read_buf.reset();
 
-    UInt64 max_block_size;
-    Block sample_block;
-};
+    if (!initialize())
+        return {};
+    return generate();
+}
+
 
 class HDFSSink : public SinkToStorage
 {
@@ -203,7 +272,7 @@ public:
         const CompressionMethod compression_method)
         : SinkToStorage(sample_block)
     {
-        write_buf = wrapWriteBufferWithCompressionMethod(std::make_unique<WriteBufferFromHDFS>(uri, context->getGlobalContext()->getConfigRef()), compression_method, 3);
+        write_buf = wrapWriteBufferWithCompressionMethod(std::make_unique<WriteBufferFromHDFS>(uri, context->getGlobalContext()->getConfigRef(), context->getSettingsRef().hdfs_replication), compression_method, 3);
         writer = FormatFactory::instance().getOutputFormatParallelIfPossible(format, *write_buf, sample_block, context);
     }
 
@@ -235,7 +304,6 @@ private:
     OutputFormatPtr writer;
 };
 
-
 class PartitionedHDFSSink : public PartitionedSink
 {
 public:
@@ -264,7 +332,6 @@ public:
 
 private:
     const String uri;
-
     const String format;
     const Block sample_block;
     ContextPtr context;
@@ -275,7 +342,7 @@ private:
 /* Recursive directory listing with matched paths as a result.
  * Have the same method in StorageFile.
  */
-Strings LSWithRegexpMatching(const String & path_for_ls, const HDFSFSPtr & fs, const String & for_match)
+Strings listFilesWithRegexpMatching(const String & path_for_ls, const HDFSFSPtr & fs, const String & for_match)
 {
     const size_t first_glob = for_match.find_first_of("*?{");
 
@@ -308,18 +375,19 @@ Strings LSWithRegexpMatching(const String & path_for_ls, const HDFSFSPtr & fs, c
         {
             if (re2::RE2::FullMatch(file_name, matcher))
             {
-                Strings result_part = LSWithRegexpMatching(fs::path(full_path) / "", fs, suffix_with_globs.substr(next_slash));
+                Strings result_part = listFilesWithRegexpMatching(fs::path(full_path) / "", fs, suffix_with_globs.substr(next_slash));
                 /// Recursion depth is limited by pattern. '*' works only for depth = 1, for depth = 2 pattern path is '*/*'. So we do not need additional check.
                 std::move(result_part.begin(), result_part.end(), std::back_inserter(result));
             }
         }
     }
-
     return result;
 }
 
+bool StorageHDFS::isColumnOriented() const
+{
+    return format_name != "Distributed" && FormatFactory::instance().checkIfFormatIsColumnOriented(format_name);
 }
-
 
 Pipe StorageHDFS::read(
     const Names & column_names,
@@ -330,36 +398,57 @@ Pipe StorageHDFS::read(
     size_t max_block_size,
     unsigned num_streams)
 {
-    const size_t begin_of_path = uri.find('/', uri.find("//") + 2);
-    const String path_from_uri = uri.substr(begin_of_path);
-    const String uri_without_path = uri.substr(0, begin_of_path);
-
-    HDFSBuilderWrapper builder = createHDFSBuilder(uri_without_path + "/", context_->getGlobalContext()->getConfigRef());
-    HDFSFSPtr fs = createHDFSFS(builder.get());
-
-    auto sources_info = std::make_shared<HDFSSource::SourcesInfo>();
-    sources_info->uris = LSWithRegexpMatching("/", fs, path_from_uri);
-
-    if (sources_info->uris.empty())
-        LOG_WARNING(log, "No file in HDFS matches the path: {}", uri);
-
+    bool need_path_column = false;
+    bool need_file_column = false;
     for (const auto & column : column_names)
     {
         if (column == "_path")
-            sources_info->need_path_column = true;
+            need_path_column = true;
         if (column == "_file")
-            sources_info->need_file_column = true;
+            need_file_column = true;
     }
 
-    if (num_streams > sources_info->uris.size())
-        num_streams = sources_info->uris.size();
+    std::shared_ptr<HDFSSource::IteratorWrapper> iterator_wrapper{nullptr};
+    if (distributed_processing)
+    {
+        iterator_wrapper = std::make_shared<HDFSSource::IteratorWrapper>(
+            [callback = context_->getReadTaskCallback()]() -> String {
+                return callback();
+        });
+    }
+    else
+    {
+        /// Iterate through disclosed globs and make a source for each file
+        auto glob_iterator = std::make_shared<HDFSSource::DisclosedGlobIterator>(context_, uri);
+        iterator_wrapper = std::make_shared<HDFSSource::IteratorWrapper>([glob_iterator]()
+        {
+            return glob_iterator->next();
+        });
+    }
 
     Pipes pipes;
-
+    auto this_ptr = std::static_pointer_cast<StorageHDFS>(shared_from_this());
     for (size_t i = 0; i < num_streams; ++i)
-        pipes.emplace_back(std::make_shared<HDFSSource>(
-                sources_info, uri_without_path, format_name, compression_method, metadata_snapshot->getSampleBlock(), context_, max_block_size));
+    {
+         const auto get_columns_for_format = [&]() -> ColumnsDescription
+        {
+            if (isColumnOriented())
+                return ColumnsDescription{
+                    metadata_snapshot->getSampleBlockForColumns(column_names, getVirtuals(), getStorageID()).getNamesAndTypesList()};
+            else
+                return metadata_snapshot->getColumns();
+        };
 
+        pipes.emplace_back(std::make_shared<HDFSSource>(
+            this_ptr,
+            metadata_snapshot,
+            context_,
+            max_block_size,
+            need_path_column,
+            need_file_column,
+            iterator_wrapper,
+            get_columns_for_format()));
+    }
     return Pipe::unitePipes(std::move(pipes));
 }
 
@@ -390,13 +479,13 @@ SinkToStoragePtr StorageHDFS::write(const ASTPtr & query, const StorageMetadataP
     }
 }
 
-void StorageHDFS::truncate(const ASTPtr & /* query */, const StorageMetadataPtr &, ContextPtr context_, TableExclusiveLockHolder &)
+void StorageHDFS::truncate(const ASTPtr & /* query */, const StorageMetadataPtr &, ContextPtr local_context, TableExclusiveLockHolder &)
 {
     const size_t begin_of_path = uri.find('/', uri.find("//") + 2);
     const String path = uri.substr(begin_of_path);
     const String url = uri.substr(0, begin_of_path);
 
-    HDFSBuilderWrapper builder = createHDFSBuilder(url + "/", context_->getGlobalContext()->getConfigRef());
+    HDFSBuilderWrapper builder = createHDFSBuilder(url + "/", local_context->getGlobalContext()->getConfigRef());
     HDFSFSPtr fs = createHDFSFS(builder.get());
 
     int ret = hdfsDelete(fs.get(), path.data(), 0);
@@ -435,7 +524,7 @@ void registerStorageHDFS(StorageFactory & factory)
             partition_by = args.storage_def->partition_by->clone();
 
         return StorageHDFS::create(
-            url, args.table_id, format_name, args.columns, args.constraints, args.comment, args.getContext(), compression_method, partition_by);
+            url, args.table_id, format_name, args.columns, args.constraints, args.comment, args.getContext(), compression_method, false, partition_by);
     },
     {
         .supports_sort_order = true, // for partition by
@@ -450,6 +539,7 @@ NamesAndTypesList StorageHDFS::getVirtuals() const
         {"_file", std::make_shared<DataTypeString>()}
     };
 }
+
 }
 
 #endif
