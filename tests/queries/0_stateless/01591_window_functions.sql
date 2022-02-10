@@ -13,10 +13,10 @@ select number, abs(number) over (partition by toString(intDiv(number, 3)) rows u
 select number, avg(number) over (order by number rows unbounded preceding) from numbers(10);
 
 -- no order by
-select number, quantileExact(number) over (partition by intDiv(number, 3) rows unbounded preceding) from numbers(10);
+select number, quantileExact(number) over (partition by intDiv(number, 3) AS value order by value rows unbounded preceding) from numbers(10);
 
 -- can add an alias after window spec
-select number, quantileExact(number) over (partition by intDiv(number, 3) rows unbounded preceding) q from numbers(10);
+select number, quantileExact(number) over (partition by intDiv(number, 3) AS value order by value rows unbounded preceding) q from numbers(10);
 
 -- can't reference it yet -- the window functions are calculated at the
 -- last stage of select, after all other functions.
@@ -81,14 +81,14 @@ select sum(number) over w1, sum(number) over w2
 from numbers(10)
 window
     w1 as (rows unbounded preceding),
-    w2 as (partition by intDiv(number, 3) rows unbounded preceding)
+    w2 as (partition by intDiv(number, 3) as value order by value rows unbounded preceding)
 ;
 
 -- FIXME both functions should use the same window, but they don't. Add an
 -- EXPLAIN test for this.
 select
     sum(number) over w1,
-    sum(number) over (partition by intDiv(number, 3) rows unbounded preceding)
+    sum(number) over (partition by intDiv(number, 3) as value order by value rows unbounded preceding)
 from numbers(10)
 window
     w1 as (partition by intDiv(number, 3) rows unbounded preceding)
@@ -400,47 +400,6 @@ from numbers(10)
 window w as (order by number range between 1 preceding and 1 following)
 order by number
 ;
-
--- nth_value without specific frame range given
-select
-    number,
-    nth_value(number, 1) over w as firstValue,
-    nth_value(number, 2) over w as secondValue,
-    nth_value(number, 3) over w as thirdValue,
-    nth_value(number, 4) over w as fourthValue
-from numbers(10)
-window w as (order by number)
-order by number
-;
-
--- nth_value with frame range specified
-select
-    number,
-    nth_value(number, 1) over w as firstValue,
-    nth_value(number, 2) over w as secondValue,
-    nth_value(number, 3) over w as thirdValue,
-    nth_value(number, 4) over w as fourthValue
-from numbers(10)
-window w as (order by number range between 1 preceding and 1 following)
-order by number
-;
-
--- to make nth_value return null for out-of-frame rows, cast the argument to
--- Nullable; otherwise, it returns default values.
-SELECT
-    number,
-    nth_value(toNullable(number), 1) OVER w as firstValue,
-    nth_value(toNullable(number), 3) OVER w as thridValue
-FROM numbers(5)
-WINDOW w AS (ORDER BY number ASC)
-;
-
--- nth_value UBsan
-SELECT nth_value(1, -1) OVER (); -- { serverError BAD_ARGUMENTS }
-SELECT nth_value(1, 0) OVER (); -- { serverError BAD_ARGUMENTS }
-SELECT nth_value(1, /* INT64_MAX+1 */ 0x7fffffffffffffff+1) OVER (); -- { serverError BAD_ARGUMENTS }
-SELECT nth_value(1, /* INT64_MAX */ 0x7fffffffffffffff) OVER ();
-SELECT nth_value(1, 1) OVER ();
 
 -- lagInFrame UBsan
 SELECT lagInFrame(1, -1) OVER (); -- { serverError BAD_ARGUMENTS }

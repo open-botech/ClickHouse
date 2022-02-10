@@ -51,7 +51,7 @@ def build_for_lang(lang, args):
         if args.htmlproofer:
             plugins.append('htmlproofer')
 
-        website_url = 'https://clickhouse.tech'
+        website_url = 'https://clickhouse.com'
         site_name = site_names.get(lang, site_names['en'])
         blog_nav, post_meta = nav.build_blog_nav(lang, args)
         raw_config = dict(
@@ -62,7 +62,7 @@ def build_for_lang(lang, args):
             strict=True,
             theme=theme_cfg,
             nav=blog_nav,
-            copyright='©2016–2021 Yandex LLC',
+            copyright='©2016–2022 ClickHouse, Inc.',
             use_directory_urls=True,
             repo_name='ClickHouse/ClickHouse',
             repo_url='https://github.com/ClickHouse/ClickHouse/',
@@ -96,10 +96,6 @@ def build_for_lang(lang, args):
         rss_template = env.from_string(rss_template_string)
         with open(os.path.join(args.blog_output_dir, lang, 'rss.xml'), 'w') as f:
             f.write(rss_template.render({'config': raw_config}))
-
-        # TODO: AMP for blog
-        # if not args.skip_amp:
-        #     amp.build_amp(lang, args, cfg)
 
         logging.info(f'Finished building {lang} blog')
 
